@@ -23,20 +23,29 @@ class OpenseaTracker(commands.Cog):
     async def stats(self,ctx,
         collection: Option(str, "Enter the collection to view the stats for", required=True),
     ):
+        """
+        Discord Stats Slash Command
+        After providing a collection name, will respond with the statistics of that collection
+        """
         
-        async with self.session.get(f"https://api.opensea.io/api/v1/collection/{collection}",
+        data = await self.get_json_from_url(f"https://api.opensea.io/api/v1/collection/{collection}")
+        if(type(data) is int):
+            await ctx.interaction.response.send_message(embed=await self.get_error_embed(
+                    f"Please check the collection name/slug and try again.\n **Error code {data}**"))
+            return
+        await ctx.respond(embed=await self.get_stats_embed(data))
+
+    async def get_json_from_url(self, url):
+        """
+        Return the json content from a url asynchronously
+        If status code is not 200, will return that code
+        """
+        async with self.session.get(url,
                 headers=self.headers) as r:
             if(r.status != 200):
-                await ctx.interaction.response.send_message(embed=await self.get_error_embed(
-                    f"Please check the collection name/slug and try again.\n **Error code {r.status}**"))
-                return
+                return r.status
             json = await r.json()
-            #await self.create_stats_embed(json)
-        await ctx.respond(embed=await self.get_stats_embed(json))
- 
-    async def create_stats_embed(self,json):
-        with open("stats.txt", "w+") as f:
-            f.write(dumps(json,indent=4))
+        return json
     
     async def get_error_embed(self, message):
         return discord.Embed(title="An error has occurred", description=message, color=discord.Color.red())
@@ -66,7 +75,6 @@ class OpenseaTracker(commands.Cog):
         num_owners = stats["num_owners"]
         average_price = stats["average_price"]
         market_cap = stats["market_cap"]
-        floor = stats["floor_price"]
         total_supply = stats["total_supply"]
 
         name = json["collection"]["primary_asset_contracts"][0]["name"]
@@ -76,7 +84,6 @@ class OpenseaTracker(commands.Cog):
 
         embed = discord.Embed(description=json["collection"]["primary_asset_contracts"][0]["description"],
                             color=discord.Color.blue())
-        #embed.set_thumbnail(url=img)
         if(link is None):
             embed.set_author(name=name,icon_url=img)
         else:
@@ -99,11 +106,7 @@ class OpenseaTracker(commands.Cog):
         embed.add_field(name="__Average Price__", value="{:.2f}E".format(average_price))
         embed.add_field(name="__Market Cap__", value="{:.2f}E".format(market_cap))
         embed.add_field(name="__Unique Owners__", value="{}".format(num_owners))
-        #embed.add_field(name="__Total Metrics__", value="**Volume:** {:.2f}\n**Sales:** {:.0f}\n**Unique Owners:** {:.0f}\n**Avg. Price:** {:.2f}\n**Market Cap:** {:.2f}\n**Floor:**{:.2f}".format(
-        #    total_volume, total_sales, num_owners, average_price, market_cap, floor
-        #), inline=False)
 
-        #embed.set_image(url=img)
         embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
 
         return embed
