@@ -1,7 +1,7 @@
 from discord.ext import commands
 
 bot = commands.Bot(command_prefix='.')
-bot.auth_key = "" # Insert your DeepL auth key here
+bot.auth_key = "" # Insert your opensea auth key here
 token = "" # Insert your Discord bot key here
 
 
