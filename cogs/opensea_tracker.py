@@ -1,12 +1,9 @@
-from email import message
-import json
 import discord
 from discord.ext import commands
 from discord.commands import Option
 import aiohttp
 from json import dumps
 import datetime
-from time import time
      
 
 class OpenseaTracker(commands.Cog):
