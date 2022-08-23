@@ -45,8 +45,8 @@ class OpenseaTracker(commands.Cog):
         Includes buttons to cycle through sales
         """
         json = await self.get_json_from_url(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={collection}&event_type=successful&limit=1")
-        await ctx.interaction.response.send_message(embed=await self.get_sales_embed(json), view=Pagination(self.bot,
-            json["next"], json["previous"], collection, 1, self.get_json_from_url, self.get_sales_embed))
+        await ctx.interaction.response.send_message(embed=await self.get_sales_embed(json, 1), view=Pagination(self.bot,
+            json["next"], json["previous"], collection, 1, 1, self.get_json_from_url, self.get_sales_embed, json))
 
     async def get_json_from_url(self, url):
         """
@@ -60,28 +60,41 @@ class OpenseaTracker(commands.Cog):
             json = await r.json()
         return json
     
-    async def get_sales_embed(self, json):
+    async def get_sales_embed(self, json, page):
         event = json["asset_events"][0]
         asset = event["asset"]
         image_url = asset["image_url"]
         link = asset["permalink"]
         collection_name = asset["collection"]["name"]
         token_id = asset["token_id"]
-        timestamp = event["event_timestamp"]
-        total_price = int(event["total_price"]) / 1000000000000000000 # ETH is divisible by 18 decimal places, and I want to see x.x rather than xxxxxxx...
-        seller_address = event["seller"]["address"]
-        buyer_address = event["winner_account"]["address"]
-
         embed = discord.Embed()
-        embed.set_thumbnail(
-                        url="https://i.imgur.com/A4k4uCi.png")
         embed.set_author(name=f"{collection_name} #{token_id} Was Sold", url=link)
-        embed.add_field(name="Price", value=f"{total_price}E", inline=False)
-        embed.add_field(name="Time of Sale", value=timestamp, inline=False)
-        embed.add_field(name="Seller", value=seller_address, inline=True)
-        embed.add_field(name="Buyer", value=buyer_address, inline=True)            
+
+        if(page == 1):
+            timestamp = event["event_timestamp"]
+            total_price = int(event["total_price"]) / 1000000000000000000 # ETH is divisible by 18 decimal places, and I want to see x.x rather than xxxxxxx...
+            seller_address = event["seller"]["address"]
+            buyer_address = event["winner_account"]["address"]
+            
+            embed.add_field(name="Price", value=f"{total_price}E", inline=False)
+            embed.add_field(name="Time of Sale", value=timestamp, inline=False)
+            embed.add_field(name="Seller", value=seller_address, inline=True)
+            embed.add_field(name="Buyer", value=buyer_address, inline=True)  
+        elif(page == 2):
+            tx_hash = event["transaction"]["transaction_hash"]
+            block_hash = event["transaction"]["block_hash"]
+            block_number = event["transaction"]["block_number"]
+            
+            embed.add_field(name="Transaction Hash", value=tx_hash, inline=False)
+            embed.add_field(name="Block Hash", value=block_hash, inline=False)
+            embed.add_field(name="Block Number", value=block_number, inline=False)
+            embed.add_field(name="Etherscan", value=f"https://etherscan.io/block/{block_number}")
+
+        embed.set_thumbnail(
+                            url="https://i.imgur.com/A4k4uCi.png")        
         embed.set_image(url=image_url)
         embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
+        
         return embed
 
             
@@ -153,7 +166,7 @@ class OpenseaTracker(commands.Cog):
 class Pagination(discord.ui.View):
     """Acts as a View to include forward and backward buttons"""
 
-    def __init__(self, bot, next_, previous, collection, limit, get_json_function, get_embed_function):
+    def __init__(self, bot, next_, previous, collection, limit, page, get_json_function, get_embed_function, json):
         self.bot = bot 
         self.json_function = get_json_function
         self.embed_function = get_embed_function
@@ -161,6 +174,8 @@ class Pagination(discord.ui.View):
         self.previous = previous
         self.collection = collection
         self.limit = limit
+        self.page = page
+        self.json = json
         super().__init__(timeout=None)
 
     @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="⬅️")
@@ -169,16 +184,26 @@ class Pagination(discord.ui.View):
             await interaction.response.send_message("No previous page", ephemeral=True)
             return
         await interaction.response.defer()
-        json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.previous}")
-        await interaction.edit_original_message(embed=await self.embed_function(json), view=Pagination(self.bot,
-            json["next"], json["previous"], self.collection, self.limit, self.json_function, self.embed_function)) # Send a message when the button is clicked
+        self.json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.previous}")
+        await interaction.edit_original_message(embed=await self.embed_function(self.json, self.page), view=Pagination(self.bot,
+            self.json["next"], self.json["previous"], self.collection, self.limit,self.page, self.json_function, self.embed_function, self.json)) # Send a message when the button is clicked
+
+    @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="ℹ️")
+    async def button_callback_more_info(self, button, interaction):
+        await interaction.response.defer()
+        self.page = self.page + 1
+        if(self.page > 2):
+            self.page = 1
+        await interaction.edit_original_message(embed=await self.embed_function(self.json, self.page), view=Pagination(self.bot,
+            self.json["next"], self.json["previous"], self.collection, self.limit,self.page, self.json_function, self.embed_function, self.json)) # Send a message when the button is clicked
+
 
     @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="➡️")
     async def button_callback_next(self, button, interaction):
         await interaction.response.defer()
-        json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.next}")
-        await interaction.edit_original_message(embed=await self.embed_function(json), view=Pagination(self.bot,
-            json["next"], json["previous"], self.collection, self.limit, self.json_function, self.embed_function)) # Send a message when the button is clicked
+        self.json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.next}")
+        await interaction.edit_original_message(embed=await self.embed_function(self.json, self.page), view=Pagination(self.bot,
+            self.json["next"], self.json["previous"], self.collection, self.limit,self.page, self.json_function, self.embed_function, self.json)) # Send a message when the button is clicked
 
 
 
