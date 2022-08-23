@@ -1,9 +1,12 @@
+from email import message
+import json
 import discord
 from discord.ext import commands
 from discord.commands import Option
 import aiohttp
 from json import dumps
 import datetime
+from time import time
      
 
 class OpenseaTracker(commands.Cog):
@@ -34,6 +37,19 @@ class OpenseaTracker(commands.Cog):
                     f"Please check the collection name/slug and try again.\n **Error code {data}**"))
             return
         await ctx.respond(embed=await self.get_stats_embed(data))
+    
+    @discord.slash_command()
+    async def sales(self, ctx,
+        collection: Option(str, "Enter the collection you wish to view the activity of", required=True),
+    ):  
+        """
+        Discord Slash Command
+        Returns an embedded message including the most recent sale of specified collection.
+        Includes buttons to cycle through sales
+        """
+        json = await self.get_json_from_url(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={collection}&event_type=successful&limit=1")
+        await ctx.interaction.response.send_message(embed=await self.get_sales_embed(json), view=Pagination(self.bot,
+            json["next"], json["previous"], collection, 1, self.get_json_from_url, self.get_sales_embed))
 
     async def get_json_from_url(self, url):
         """
@@ -47,6 +63,31 @@ class OpenseaTracker(commands.Cog):
             json = await r.json()
         return json
     
+    async def get_sales_embed(self, json):
+        event = json["asset_events"][0]
+        asset = event["asset"]
+        image_url = asset["image_url"]
+        link = asset["permalink"]
+        collection_name = asset["collection"]["name"]
+        token_id = asset["token_id"]
+        timestamp = event["event_timestamp"]
+        total_price = int(event["total_price"]) / 1000000000000000000 # ETH is divisible by 18 decimal places, and I want to see x.x rather than xxxxxxx...
+        seller_address = event["seller"]["address"]
+        buyer_address = event["winner_account"]["address"]
+
+        embed = discord.Embed()
+        embed.set_thumbnail(
+                        url="https://i.imgur.com/A4k4uCi.png")
+        embed.set_author(name=f"{collection_name} #{token_id} Was Sold", url=link)
+        embed.add_field(name="Price", value=f"{total_price}E", inline=False)
+        embed.add_field(name="Time of Sale", value=timestamp, inline=False)
+        embed.add_field(name="Seller", value=seller_address, inline=True)
+        embed.add_field(name="Buyer", value=buyer_address, inline=True)            
+        embed.set_image(url=image_url)
+        embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
+        return embed
+
+            
     async def get_error_embed(self, message):
         return discord.Embed(title="An error has occurred", description=message, color=discord.Color.red())
 
@@ -110,6 +151,39 @@ class OpenseaTracker(commands.Cog):
         embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
 
         return embed
+
+
+class Pagination(discord.ui.View):
+    """Acts as a View to include forward and backward buttons"""
+
+    def __init__(self, bot, next_, previous, collection, limit, get_json_function, get_embed_function):
+        self.bot = bot 
+        self.json_function = get_json_function
+        self.embed_function = get_embed_function
+        self.next = next_
+        self.previous = previous
+        self.collection = collection
+        self.limit = limit
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="⬅️")
+    async def button_callback_prev(self, button, interaction):
+        if(self.previous is None):
+            await interaction.response.send_message("No previous page", ephemeral=True)
+            return
+        await interaction.response.defer()
+        json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.previous}")
+        await interaction.edit_original_message(embed=await self.embed_function(json), view=Pagination(self.bot,
+            json["next"], json["previous"], self.collection, self.limit, self.json_function, self.embed_function)) # Send a message when the button is clicked
+
+    @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="➡️")
+    async def button_callback_next(self, button, interaction):
+        await interaction.response.defer()
+        json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.next}")
+        await interaction.edit_original_message(embed=await self.embed_function(json), view=Pagination(self.bot,
+            json["next"], json["previous"], self.collection, self.limit, self.json_function, self.embed_function)) # Send a message when the button is clicked
+
+
 
 def setup(bot): # this is called by Pycord to setup the cog
     bot.add_cog(OpenseaTracker(bot)) # add the cog to the bot
