@@ -1,9 +1,10 @@
+from xml.dom.minidom import Attr
 import discord
 from discord.ext import commands
 from discord.commands import Option
 import aiohttp
 from json import dumps
-import datetime
+from datetime import datetime
      
 
 class OpenseaTracker(commands.Cog):
@@ -13,11 +14,17 @@ class OpenseaTracker(commands.Cog):
 
     def __init__(self, bot): 
         self.bot = bot
-        self.session = aiohttp.ClientSession()
+        self.firstTime = True
         self.headers = {
             "Accept": "application/json",
                     "X-API-KEY": self.bot.auth_key
         }
+    
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if(self.firstTime):
+            self.session = aiohttp.ClientSession()
+            self.firstTime = False
 
     @discord.slash_command(name="stats", description="View the statistics for a collection!")
     async def stats(self,ctx,
@@ -31,9 +38,9 @@ class OpenseaTracker(commands.Cog):
         data = await self.get_json_from_url(f"https://api.opensea.io/api/v1/collection/{collection}")
         if(type(data) is int):
             await ctx.interaction.response.send_message(embed=await self.get_error_embed(
-                    f"Please check the collection name/slug and try again.\n **Error code {data}**"))
+                    f"Please check the collection name/slug and try again.\n **Error code {data}**"), ephemeral=False)
             return
-        await ctx.respond(embed=await self.get_stats_embed(data))
+        await ctx.respond(embed=await self.get_stats_embed(data), ephemeral=False)
     
     @discord.slash_command()
     async def sales(self, ctx,
@@ -46,18 +53,27 @@ class OpenseaTracker(commands.Cog):
         """
         json = await self.get_json_from_url(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={collection}&event_type=successful&limit=1")
         await ctx.interaction.response.send_message(embed=await self.get_sales_embed(json, 1), view=Pagination(self.bot,
-            json["next"], json["previous"], collection, 1, 1, self.get_json_from_url, self.get_sales_embed, json))
+            json["next"], json["previous"], collection, 1, 1, self.get_json_from_url, self.get_sales_embed, json), ephemeral=False)
 
     async def get_json_from_url(self, url):
         """
         Return the json content from a url asynchronously
         If status code is not 200, will return that code
         """
-        async with self.session.get(url,
-                headers=self.headers) as r:
-            if(r.status != 200):
-                return r.status
-            json = await r.json()
+        try:
+            async with self.session.get(url,
+                    headers=self.headers) as r:
+                if(r.status != 200):
+                    return r.status
+                json = await r.json()
+        except AttributeError:
+            # It's possible session did not set properly, set it now
+            self.session = aiohttp.ClientSession()
+            async with self.session.get(url,
+                    headers=self.headers) as r:
+                if(r.status != 200):
+                    return r.status
+                json = await r.json()
         return json
     
     async def get_sales_embed(self, json, page):
@@ -90,10 +106,11 @@ class OpenseaTracker(commands.Cog):
             embed.add_field(name="Block Number", value=block_number, inline=False)
             embed.add_field(name="Etherscan", value=f"https://etherscan.io/block/{block_number}")
 
-        embed.set_thumbnail(
-                            url="https://i.imgur.com/A4k4uCi.png")        
         embed.set_image(url=image_url)
-        embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
+        embed.set_thumbnail(
+                            url="https://cdn.discordapp.com/attachments/985963144973258804/1012639908218818620/logo.png")
+        embed.set_footer(text="BotShop | {}".format(datetime.utcnow().strftime('%H:%M:%S')))
+        
         
         return embed
 
@@ -139,8 +156,6 @@ class OpenseaTracker(commands.Cog):
             embed.set_author(name=name,icon_url=img)
         else:
             embed.set_author(name=name, url=link, icon_url=img)
-        embed.set_thumbnail(
-                            url="https://i.imgur.com/A4k4uCi.png")
         embed.add_field(name="__One Day Metrics__", value="**Volume:** {:.2f}\n**Sales:** {:.0f}\n**Change:** {:.2%}\n**Avg. Price:** {:.2f}".format(
             one_day_volume, one_day_sales, one_day_change, one_day_average_price
         ))
@@ -158,8 +173,10 @@ class OpenseaTracker(commands.Cog):
         embed.add_field(name="__Market Cap__", value="{:.2f}E".format(market_cap))
         embed.add_field(name="__Unique Owners__", value="{}".format(num_owners))
 
-        embed.set_footer(text="FungiBot | {}".format(datetime.datetime.utcnow().strftime('%H:%M:%S')))
-
+        embed.set_thumbnail(
+                            url="https://cdn.discordapp.com/attachments/985963144973258804/1012639908218818620/logo.png")
+        embed.set_footer(text="BotShop | {}".format(datetime.utcnow().strftime('%H:%M:%S')))
+        
         return embed
 
 
@@ -181,12 +198,11 @@ class Pagination(discord.ui.View):
     @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="⬅️")
     async def button_callback_prev(self, button, interaction):
         if(self.previous is None):
-            await interaction.response.send_message("No previous page", ephemeral=True)
+            await interaction.response.send_message("No previous page", ephemeral=False)
             return
         await interaction.response.defer()
         self.json = await self.json_function(f"https://api.opensea.io/api/v1/events?only_opensea=false&collection_slug={self.collection}&event_type=successful&limit={self.limit}&cursor={self.previous}")
-        await interaction.edit_original_message(embed=await self.embed_function(self.json, self.page), view=Pagination(self.bot,
-            self.json["next"], self.json["previous"], self.collection, self.limit,self.page, self.json_function, self.embed_function, self.json)) # Send a message when the button is clicked
+        await interaction.edit_original_message(embed=await self.embed_function(self.json, self.page)) # Send a message when the button is clicked
 
     @discord.ui.button(label="", style=discord.ButtonStyle.primary, emoji="ℹ️")
     async def button_callback_more_info(self, button, interaction):
