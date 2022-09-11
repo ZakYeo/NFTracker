@@ -15,7 +15,7 @@ Track NFT sales and statistics in Discord through OpenSea & Discord's API
   <h2>/nft stats [collection_slug]</h2>
       • View the statistics of an entire NFT colection, returned in an embedded message<br>
       • Example usages:
-          • /nft stats boredapeyachtclub
-          • /nft stats doodles-official
-          • /nft stats mutant-ape-yacht-club
+          • /nft stats boredapeyachtclub<br>
+          • /nft stats doodles-official<br>
+          • /nft stats mutant-ape-yacht-club<br>
     
