@@ -1,7 +1,7 @@
 from xml.dom.minidom import Attr
 import discord
 from discord.ext import commands
-from discord.commands import Option
+from discord.commands import Option, SlashCommandGroup
 import aiohttp
 from json import dumps
 from datetime import datetime
@@ -20,13 +20,15 @@ class OpenseaTracker(commands.Cog):
                     "X-API-KEY": self.bot.auth_key
         }
     
+    nft = SlashCommandGroup("nft", "NFT related commands")
+    
     @commands.Cog.listener()
     async def on_ready(self):
         if(self.firstTime):
             self.session = aiohttp.ClientSession()
             self.firstTime = False
 
-    @discord.slash_command(name="stats", description="View the statistics for a collection!")
+    @nft.command(name="stats", description="View the statistics for a collection!")
     async def stats(self,ctx,
         collection: Option(str, "Enter the collection to view the stats for", required=True),
     ):
@@ -42,7 +44,7 @@ class OpenseaTracker(commands.Cog):
             return
         await ctx.respond(embed=await self.get_stats_embed(data), ephemeral=False)
     
-    @discord.slash_command()
+    @nft.command()
     async def sales(self, ctx,
         collection: Option(str, "Enter the collection you wish to view the activity of", required=True),
     ):  
